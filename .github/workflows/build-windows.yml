@@ -1,0 +1,83 @@
+name: build-windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "私有源码仓库 ref（branch/tag/SHA）"
+        required: false
+        default: "main"
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    env:
+      CARGO_INCREMENTAL: "0"
+      RUSTUP_WINDOWS_PATH_ADD_BIN: "1"
+
+    steps:
+      - name: Checkout source repo (private)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.SOURCE_REPO }}
+          ref: ${{ github.event.inputs.source_ref || 'main' }}
+          ssh-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          ssh-strict: true
+          submodules: recursive
+          fetch-depth: 1
+          persist-credentials: false
+          path: source
+
+      - name: Resolve source SHA
+        id: source_sha
+        shell: pwsh
+        run: |
+          $sha = (git -C source rev-parse HEAD).Trim()
+          "sha=$sha" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          target: x86_64-pc-windows-msvc
+
+      - name: Add Strawberry Perl to PATH
+        shell: pwsh
+        run: |
+          "C:\\Strawberry\\perl\\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Build (release)
+        shell: pwsh
+        working-directory: source
+        run: |
+          cargo build -p wezterm --release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo build -p wezterm-gui --release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo build -p wezterm-mux-server --release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo build -p strip-ansi-escapes --release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Package binaries
+        shell: pwsh
+        working-directory: source
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target\\release\\wezterm.exe dist\\
+          Copy-Item target\\release\\wezterm-gui.exe dist\\
+          Copy-Item target\\release\\wezterm-mux-server.exe dist\\
+          Copy-Item target\\release\\strip-ansi-escapes.exe dist\\
+          Compress-Archive -Path dist\\* -DestinationPath wezterm-ime-windows-${{ steps.source_sha.outputs.sha }}.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wezterm-ime-windows
+          path: source\\wezterm-ime-windows-${{ steps.source_sha.outputs.sha }}.zip
