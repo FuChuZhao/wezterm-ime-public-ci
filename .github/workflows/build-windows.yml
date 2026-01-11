@@ -70,10 +70,16 @@ jobs:
         working-directory: source
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
+          New-Item -ItemType Directory -Force dist\\mesa | Out-Null
           Copy-Item target\\release\\wezterm.exe dist\\
           Copy-Item target\\release\\wezterm-gui.exe dist\\
           Copy-Item target\\release\\wezterm-mux-server.exe dist\\
           Copy-Item target\\release\\strip-ansi-escapes.exe dist\\
+          Copy-Item target\\release\\conpty.dll dist\\
+          Copy-Item target\\release\\OpenConsole.exe dist\\
+          Copy-Item target\\release\\libEGL.dll dist\\
+          Copy-Item target\\release\\libGLESv2.dll dist\\
+          Copy-Item target\\release\\mesa\\opengl32.dll dist\\mesa\\
           Compress-Archive -Path dist\\* -DestinationPath wezterm-ime-windows-${{ steps.source_sha.outputs.sha }}.zip
 
       - name: Upload artifact
