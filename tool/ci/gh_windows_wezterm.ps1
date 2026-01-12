@@ -8,6 +8,8 @@ param(
 
   [string]$SourceRef = "main",
 
+  [Nullable[Int64]]$RunId,
+
   [switch]$DownloadArtifact,
 
   [switch]$DeleteArtifactsAfterDownload,
@@ -20,12 +22,41 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+function Invoke-GhWithRetry {
+  param(
+    [Parameter(Mandatory = $true)]
+    [scriptblock]$Block,
+
+    [int]$MaxAttempts = 30,
+
+    [int]$SleepSeconds = 5
+  )
+
+  for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+    try {
+      $result = & $Block
+      if ($LASTEXITCODE -eq 0) {
+        return $result
+      }
+    } catch {
+      # Fall through to retry
+    }
+
+    if ($attempt -lt $MaxAttempts) {
+      Start-Sleep -Seconds $SleepSeconds
+    }
+  }
+
+  throw "gh 调用多次失败（MaxAttempts=$MaxAttempts）"
+}
+
 function Get-LatestRunId {
   param(
     [string]$Repo,
     [string]$Workflow
   )
-  $json = gh run list -R $Repo --workflow $Workflow -L 1 --json databaseId,status,conclusion | ConvertFrom-Json
+  $raw = Invoke-GhWithRetry { gh run list -R $Repo --workflow $Workflow -L 1 --json databaseId,status,conclusion }
+  $json = $raw | ConvertFrom-Json
   if (-not $json -or -not $json[0].databaseId) {
     throw "无法获取 workflow run id（Repo=$Repo Workflow=$Workflow）"
   }
@@ -39,13 +70,37 @@ function Wait-Run {
     [int]$PollSeconds
   )
   while ($true) {
-    $run = gh run view $RunId -R $Repo --json status,conclusion,updatedAt | ConvertFrom-Json
+    $raw = $null
+    try {
+      $raw = gh run view $RunId -R $Repo --json status,conclusion,updatedAt
+    } catch {
+      $raw = $null
+    }
+
+    if ($LASTEXITCODE -ne 0 -or -not $raw) {
+      Start-Sleep -Seconds $PollSeconds
+      continue
+    }
+
+    $run = $null
+    try {
+      $run = $raw | ConvertFrom-Json
+    } catch {
+      $run = $null
+    }
+
+    if (-not $run -or -not $run.status) {
+      Start-Sleep -Seconds $PollSeconds
+      continue
+    }
+
     if ($run.status -eq "completed") {
       if ($run.conclusion -ne "success") {
         throw "CI 失败：run=$RunId conclusion=$($run.conclusion)"
       }
       return
     }
+
     Start-Sleep -Seconds $PollSeconds
   }
 }
@@ -55,18 +110,23 @@ function Delete-RunArtifacts {
     [string]$Repo,
     [int64]$RunId
   )
-  $arts = gh api "/repos/$Repo/actions/runs/$RunId/artifacts" | ConvertFrom-Json
+  $raw = Invoke-GhWithRetry { gh api "/repos/$Repo/actions/runs/$RunId/artifacts" }
+  $arts = $raw | ConvertFrom-Json
   foreach ($a in $arts.artifacts) {
     if ($a.id) {
-      gh api -X DELETE "/repos/$Repo/actions/artifacts/$($a.id)" | Out-Null
+      Invoke-GhWithRetry { gh api -X DELETE "/repos/$Repo/actions/artifacts/$($a.id)" | Out-Null }
     }
   }
 }
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
-gh workflow run $Workflow -R $Repo --ref $Ref -f source_ref=$SourceRef | Out-Null
-$runId = Get-LatestRunId -Repo $Repo -Workflow $Workflow
+if ($RunId) {
+  $runId = [int64]$RunId
+} else {
+  Invoke-GhWithRetry { gh workflow run $Workflow -R $Repo --ref $Ref -f source_ref=$SourceRef | Out-Null }
+  $runId = Get-LatestRunId -Repo $Repo -Workflow $Workflow
+}
 Write-Host "run_id=$runId"
 
 Wait-Run -Repo $Repo -RunId $runId -PollSeconds $PollSeconds
@@ -82,4 +142,3 @@ if ($DeleteArtifactsAfterDownload) {
   Delete-RunArtifacts -Repo $Repo -RunId $runId
   Write-Host "artifacts_deleted=1"
 }
-
