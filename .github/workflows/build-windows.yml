@@ -7,9 +7,6 @@ on:
         description: "私有源码仓库 ref（branch/tag/SHA）"
         required: false
         default: "main"
-  push:
-    branches:
-      - main
 
 permissions:
   contents: read
@@ -28,7 +25,7 @@ jobs:
         with:
           repository: ${{ vars.SOURCE_REPO }}
           ref: ${{ github.event.inputs.source_ref || 'main' }}
-          ssh-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          ssh-key: ${{ secrets.SOURCE_REPO_SSH_KEY || secrets.SSH_PRIVATE_KEY }}
           ssh-strict: true
           submodules: recursive
           fetch-depth: 1
@@ -87,3 +84,4 @@ jobs:
         with:
           name: wezterm-ime-windows
           path: source\\wezterm-ime-windows-${{ steps.source_sha.outputs.sha }}.zip
+          retention-days: 1
