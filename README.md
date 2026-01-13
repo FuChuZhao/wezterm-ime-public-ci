@@ -21,19 +21,20 @@ ssh-keygen -t ed25519 -C "github-actions" -f wezterm-ime-build-key
 
 - 将 `wezterm-ime-build-key.pub` 添加到**私有源码仓库**：`Settings` → `Deploy keys` → `Add deploy key`（建议只勾选 read-only）
 - 将 `wezterm-ime-build-key`（私钥全文）添加到**本公共仓库**：`Settings` → `Secrets and variables` → `Actions` → `New repository secret`
-  - 名称：`SSH_PRIVATE_KEY`
+  - 名称：`SOURCE_REPO_SSH_KEY`（推荐）
+  - 兼容：也可继续使用旧名 `SSH_PRIVATE_KEY`（workflow 会优先读 `SOURCE_REPO_SSH_KEY`）
 
 ### 3) 配置仓库 Secrets/Variables
 
 在本公共仓库中配置：
 
-- `SSH_PRIVATE_KEY`：上一步的私钥全文
-- `SOURCE_REPO`：私有源码仓库的 `owner/repo`（例如：`FuChuZhao/wezterm-ime-private`）
+- `SOURCE_REPO_SSH_KEY`：上一步的私钥全文（或旧名 `SSH_PRIVATE_KEY`）
+- `SOURCE_REPO`（Actions Variables）：私有源码仓库的 `owner/repo`（例如：`FuChuZhao/wezterm-ime-private`）
 
 ## 触发构建
 
-- 手动：`Actions` → `build-windows` → `Run workflow`，可输入要构建的 `ref`（branch/tag/SHA）
-- 自动：向本公共仓库的 `main` 分支 push 会触发一次构建（默认构建私有源码仓库的 `main`）
+- 仅保留手动触发：`Actions` → `build-windows` → `Run workflow`
+- 可输入要构建的 `source_ref`（私有源码仓库 branch/tag/SHA；默认 `main`）
 
 ## 构建产物
 
@@ -43,4 +44,3 @@ ssh-keygen -t ed25519 -C "github-actions" -f wezterm-ime-build-key
 - `wezterm-gui.exe`
 - `wezterm-mux-server.exe`
 - `strip-ansi-escapes.exe`
-
